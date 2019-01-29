@@ -9,23 +9,42 @@ import * as firebase from 'firebase';
 import { map } from 'rxjs/operators';
 import { User } from './user.model';
 import { AngularFirestore } from '@angular/fire/firestore';
+import { Store } from '@ngrx/store';
+import { AppState } from '../app.reducer';
+import { ActivarLoadingAction, DesactivarLoadingAction } from '../shared/ui.actions';
+import { SetUserAction } from './auth.actions';
+import { Subscription } from 'rxjs';
 
 @Injectable({
   providedIn: 'root'
 })
 export class AuthService {
 
-  constructor( private afAuth: AngularFireAuth, 
+  private userSubscription: Subscription = new Subscription();
+
+  constructor( private afAuth: AngularFireAuth,
     private router: Router,
-    private afDB: AngularFirestore ) { }
+    private afDB: AngularFirestore,
+    private store: Store<AppState> ) { }
 
   initAuthListener() {
     this.afAuth.authState.subscribe( (fbUser: firebase.User) => {
       console.log('fbUser: ', fbUser);
+      if ( fbUser ) {
+        this.userSubscription = this.afDB.doc(`${ fbUser.uid }/usuario`).valueChanges()
+        .subscribe( (userFB: any) => {
+          const usuario = new User( userFB );
+          this.store.dispatch(new SetUserAction( usuario));
+          console.log('usuarioObj: ', usuario);
+        });
+      } else {
+        this.userSubscription.unsubscribe();
+      }
     });
   }
 
   crearUsuario( nombre: string, email: string, password: string ) {
+    this.store.dispatch( new ActivarLoadingAction());
     this.afAuth.auth.createUserWithEmailAndPassword(email, password)
     .then( res => {
       console.log('success: ', res);
@@ -36,28 +55,35 @@ export class AuthService {
         email: res.user.email
       };
 
-      this.afDB.doc(` ${ user.uid }/usuario `).set( user )
+      this.afDB.doc(`${ user.uid }/usuario`).set( user )
+      // tslint:disable-next-line:no-shadowed-variable
       .then( res => {
         console.log('success: ', res);
           this.router.navigate(['/']);
+          this.store.dispatch( new DesactivarLoadingAction());
       }).catch( err => {
           console.log('err: ', err);
+          this.store.dispatch( new DesactivarLoadingAction());
       });
 
     }).catch( err => {
       console.log('error: ', err);
       Swal.fire('Error en el login', err.message, 'error');
+      this.store.dispatch( new DesactivarLoadingAction());
     });
   }
 
   loginUser( email: string, password: string ) {
+    this.store.dispatch( new ActivarLoadingAction());
     this.afAuth.auth.signInWithEmailAndPassword( email, password)
     .then( res => {
       console.log('success: ', res);
       this.router.navigate(['/']);
+      this.store.dispatch( new DesactivarLoadingAction());
     }).catch( err => {
       console.log('error: ', err);
       Swal.fire('Error en el login', err.message, 'error');
+      this.store.dispatch( new DesactivarLoadingAction());
     });
   }
 
